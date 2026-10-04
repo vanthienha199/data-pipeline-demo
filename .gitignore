@@ -1,0 +1,9 @@
+.venv/
+warehouse/
+data/raw/
+target/
+dbt_packages/
+logs/
+site/
+.DS_Store
+__pycache__/

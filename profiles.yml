@@ -1,0 +1,7 @@
+copper_kettle:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: warehouse/copper_kettle.duckdb
+      threads: 4

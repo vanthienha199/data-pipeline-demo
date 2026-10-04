@@ -1,0 +1,17 @@
+version: 2
+seeds:
+  - name: stores
+    description: The three Copper Kettle shops. Maintained by hand.
+    columns:
+      - name: store_id
+        data_tests: [unique, not_null]
+  - name: menu
+    description: Current menu with list prices.
+    columns:
+      - name: sku
+        data_tests: [unique, not_null]
+      - name: category
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [coffee, tea, food, retail]

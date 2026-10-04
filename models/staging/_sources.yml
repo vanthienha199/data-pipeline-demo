@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: Files copied into DuckDB by pipeline/load_raw.py, untouched.
+    tables:
+      - name: pos_standard
+        description: Daily POS exports from Pearl and Division. US dates, 12 hour times, dollar signs, re-exported duplicate rows.
+        config:
+          loaded_at_field: "cast(strptime(\"Date\", '%m/%d/%Y') as timestamp) + interval 1 day"
+          freshness:
+            warn_after: {count: 36, period: hour}
+            error_after: {count: 60, period: hour}
+      - name: pos_alberta
+        description: Daily POS exports from Alberta after its terminal upgrade. Semicolon delimited, ISO timestamps.
+        config:
+          loaded_at_field: "cast(\"timestamp\" as timestamp)"
+          freshness:
+            warn_after: {count: 36, period: hour}
+            error_after: {count: 60, period: hour}
+      - name: order_webhooks
+        description: Online order webhooks as delivered, including retries and cancellations.
+        config:
+          loaded_at_field: "cast(received_at as timestamp)"
+          freshness:
+            warn_after: {count: 36, period: hour}
+            error_after: {count: 60, period: hour}
+      - name: weather_daily
+        description: Daily weather per shop from the public Open-Meteo API.
+        config:
+          loaded_at_field: "cast(pulled_at as timestamp)"
+          freshness:
+            warn_after: {count: 30, period: hour}
+            error_after: {count: 54, period: hour}

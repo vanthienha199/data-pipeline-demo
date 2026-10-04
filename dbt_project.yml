@@ -1,0 +1,24 @@
+name: copper_kettle
+version: "1.0.0"
+config-version: 2
+profile: copper_kettle
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target"]
+
+models:
+  copper_kettle:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  copper_kettle:
+    +schema: ref

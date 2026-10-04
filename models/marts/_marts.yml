@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: dim_stores
+    columns:
+      - name: store_id
+        data_tests: [unique, not_null]
+  - name: dim_products
+    columns:
+      - name: sku
+        data_tests: [unique, not_null]
+  - name: fct_order_lines
+    description: Every item sold in store or online. Cancelled online orders are left out.
+    columns:
+      - name: order_line_id
+        data_tests: [unique, not_null]
+      - name: channel
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [in_store, online]
+      - name: store_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stores')
+                field: store_id
+  - name: fct_orders
+    description: One row per order, in store or online.
+    columns:
+      - name: order_key
+        data_tests: [unique, not_null]
+      - name: revenue
+        data_tests: [not_null]
+  - name: mart_daily_store_kpis
+    description: One row per shop per day with orders, revenue, online share, cold drink share and that day's weather.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [store_id, order_date]
+    columns:
+      - name: orders
+        data_tests: [not_null]
+      - name: temp_max_c
+        description: Null would mean the weather pull missed a day.
+        data_tests: [not_null]

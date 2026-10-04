@@ -1,0 +1,14 @@
+sku,item_name,category,serve_temp,list_price
+ESP-DBL,Double espresso,coffee,hot,3.75
+LAT-12,Latte 12oz,coffee,hot,5.25
+LAT-16,Latte 16oz,coffee,hot,5.95
+CAP-12,Cappuccino,coffee,hot,5.10
+DRP-12,Drip coffee,coffee,hot,3.40
+MOC-16,Mocha 16oz,coffee,hot,6.25
+ICL-16,Iced latte 16oz,coffee,cold,6.10
+CBR-16,Cold brew 16oz,coffee,cold,5.45
+ICT-16,Iced tea,tea,cold,4.15
+CRS-01,Butter croissant,food,,4.25
+SCN-01,Marionberry scone,food,,4.50
+BRK-01,Breakfast burrito,food,,9.75
+BEN-12,Whole bean 12oz bag,retail,,17.50

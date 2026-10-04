@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: stg_pos_lines
+    description: POS lines from both export formats in one shape, with stores, tenders and money cleaned and re-exported duplicates removed.
+    columns:
+      - name: pos_line_id
+        data_tests: [unique, not_null]
+      - name: store_id
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [pearl, alberta, division]
+      - name: ordered_at
+        data_tests: [not_null]
+      - name: sku
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('menu')
+                field: sku
+      - name: line_total
+        data_tests: [not_null]
+      - name: tender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [card, cash, apple_pay, unknown]
+  - name: stg_order_events
+    description: Webhook events with retried deliveries removed.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [order.created, order.cancelled]
+  - name: stg_online_orders
+    description: One row per online order at its latest status, test orders excluded.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: order_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [paid, cancelled]
+  - name: stg_online_order_lines
+    columns:
+      - name: online_line_id
+        data_tests: [unique, not_null]
+  - name: stg_weather_daily
+    columns:
+      - name: weather_date
+        data_tests: [not_null]
