@@ -1,4 +1,4 @@
-"""Builds site/index.html: the KPI view plus the pipeline's own health, from the warehouse and dbt artifacts."""
+"""Builds site/index.html: Copper Kettle's daily board, from the warehouse and dbt artifacts."""
 import html
 import json
 from datetime import datetime, timezone
@@ -7,105 +7,114 @@ from pathlib import Path
 import duckdb
 
 SITE = Path("site")
+GREYS = {"pearl": "#8A8174", "alberta": "#A79D8E", "division": "#C2B8A8"}
+COPPER = "#B0603A"
 
 
-def svg_chart(rows, w=1040, h=260):
-    days = [r[0] for r in rows]
-    rev = [r[1] for r in rows]
-    temp = [r[2] for r in rows]
-    pad_l, pad_b, pad_t = 56, 28, 12
-    iw, ih = w - pad_l - 12, h - pad_b - pad_t
-    rmax = max(rev) * 1.08
-    tmin, tmax = min(temp) - 2, max(temp) + 2
-    x = lambda i: pad_l + i * iw / max(1, len(rows) - 1)
-    yr = lambda v: pad_t + ih - v / rmax * ih
-    yt = lambda v: pad_t + ih - (v - tmin) / (tmax - tmin) * ih
-    bars = "".join(f'<rect x="{x(i) - iw / len(rows) / 2 + 1:.1f}" y="{yt(t):.1f}" width="{max(1, iw / len(rows) - 2):.1f}" height="{pad_t + ih - yt(t):.1f}" class="t"/>' for i, t in enumerate(temp))
-    line = " ".join(f"{x(i):.1f},{yr(v):.1f}" for i, v in enumerate(rev))
-    grid = "".join(f'<line x1="{pad_l}" x2="{w - 12}" y1="{yr(v):.1f}" y2="{yr(v):.1f}" class="g"/><text x="{pad_l - 8}" y="{yr(v) + 4:.1f}" class="ax" text-anchor="end">${v / 1000:.0f}k</text>' for v in [rmax * f / 1.08 for f in (0.25, 0.5, 0.75, 1.0)])
+def chart(series, days, w=1040, h=280):
+    pl, pr, pt, pb = 52, 16, 14, 30
+    iw, ih = w - pl - pr, h - pt - pb
+    vmax = max(max(v) for v in series.values()) * 1.1
+    x = lambda i: pl + i * iw / max(1, len(days) - 1)
+    y = lambda v: pt + ih - v / vmax * ih
+    grid = "".join(f'<line x1="{pl}" x2="{w - pr}" y1="{y(v):.1f}" y2="{y(v):.1f}" class="g"/><text x="{pl - 8}" y="{y(v) + 4:.1f}" class="ax" text-anchor="end">{int(v)}</text>' for v in (vmax * f / 1.1 for f in (0.25, 0.5, 0.75, 1.0)))
     ticks = "".join(f'<text x="{x(i):.1f}" y="{h - 8}" class="ax" text-anchor="middle">{d:%b %-d}</text>' for i, d in enumerate(days) if i % 14 == 0)
-    return f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="Daily revenue against max temperature">{grid}{bars}<polyline points="{line}" class="r"/>{ticks}</svg>'
+    lines = "".join(f'<polyline data-store="{s}" class="ln" points="{" ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(vals))}" style="--c:{GREYS[s]}"/>' for s, vals in series.items())
+    return f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="Cups sold per day by store">{grid}{lines}{ticks}</svg>'
 
 
 def main():
     con = duckdb.connect("warehouse/copper_kettle.duckdb", read_only=True)
-    q = lambda s: con.execute(s).fetchall()
-    last_day = q("select max(order_date) from marts.mart_daily_store_kpis")[0][0]
-    cur, prev = q(f"""
-        select
-          sum(revenue) filter (where order_date > date '{last_day}' - 30),
-          sum(revenue) filter (where order_date <= date '{last_day}' - 30 and order_date > date '{last_day}' - 60),
-          sum(orders) filter (where order_date > date '{last_day}' - 30),
-          sum(orders) filter (where order_date <= date '{last_day}' - 30 and order_date > date '{last_day}' - 60),
-          sum(online_orders) filter (where order_date > date '{last_day}' - 30),
-          sum(online_orders) filter (where order_date <= date '{last_day}' - 30 and order_date > date '{last_day}' - 60)
-        from marts.mart_daily_store_kpis""")[0], None
-    rev, rev_p, orders, orders_p, onl, onl_p = cur
-    aov, aov_p = rev / orders, rev_p / orders_p
-    share, share_p = onl / orders, onl_p / orders_p
-    delta = lambda a, b: (a - b) / b * 100
-    kpis = [
-        ("Revenue, last 30 days", f"${rev:,.2f}", delta(rev, rev_p)),
-        ("Orders", f"{orders:,}", delta(orders, orders_p)),
-        ("Average order", f"${aov:,.2f}", delta(aov, aov_p)),
-        ("Online share", f"{share * 100:.1f}%", (share - share_p) * 100),
-    ]
-    daily = q("select order_date, sum(revenue), avg(temp_max_c) from marts.mart_daily_store_kpis group by 1 order by 1")
-    stores = q(f"""select store_name, sum(revenue), sum(orders), sum(revenue) / sum(orders), avg(cold_drink_share)
-                   from marts.mart_daily_store_kpis where order_date > date '{last_day}' - 30 group by 1 order by 2 desc""")
-    weather = q("""select is_rainy, avg(online_share), avg(orders), count(*) from marts.mart_daily_store_kpis group by 1 order by 1""")
+    q = lambda s, *a: con.execute(s, a).fetchall()
+    last = q("select max(order_date) from marts.mart_daily_store_kpis")[0][0]
+    board = q("""
+        with d as (select * from marts.mart_daily_store_kpis)
+        select t.store_id, s.neighborhood, t.cups, t.avg_order_value, t.revenue,
+               (select avg(cups) from d p where p.store_id = t.store_id and p.order_date between ? - 7 and ? - 1) as wk,
+               t.online_share, t.cold_drink_share
+        from d t join marts.dim_stores s using (store_id)
+        where t.order_date = ? order by t.cups desc""", last, last, last)
+    top = board[0]
+    top_delta = (top[2] - top[5]) / top[5] * 100
+    headline = f"{top[1]} sold {top[2]:,} cups on {last:%A}, {'up' if top_delta >= 0 else 'down'} {abs(top_delta):.0f}% on its weekly average."
+    days = [r[0] for r in q("select distinct order_date from marts.mart_daily_store_kpis order by 1")]
+    series = {}
+    for s in GREYS:
+        m = dict(q("select order_date, cups from marts.mart_daily_store_kpis where store_id = ?", s))
+        series[s] = [m.get(d, 0) for d in days]
+    wet, dry = q("select avg(online_share) filter (where is_rainy), avg(online_share) filter (where not is_rainy) from marts.mart_daily_store_kpis")[0]
     corr = q("select corr(cold_drink_share, temp_max_c) from marts.mart_daily_store_kpis")[0][0]
-    layers = q("""select 'raw', (select count(*) from raw.pos_standard) + (select count(*) from raw.pos_alberta) + (select count(*) from raw.order_webhooks)
-                  union all select 'staging', (select count(*) from staging.stg_pos_lines) + (select count(*) from staging.stg_online_order_lines)
-                  union all select 'marts', (select count(*) from marts.fct_order_lines)""")
     run = json.loads(Path("target/build_results.json").read_text())
-    statuses = [r["status"] for r in run["results"]]
     tests = [r for r in run["results"] if r["unique_id"].startswith("test.")]
+    passed = sum(1 for r in run["results"] if r["status"] in ("pass", "success"))
     fresh = json.loads(Path("target/sources.json").read_text()) if Path("target/sources.json").exists() else {"results": []}
-    generated = datetime.now(timezone.utc).strftime("%b %-d, %Y %H:%M UTC")
+    fresh_ok = sum(1 for r in fresh["results"] if r.get("status") == "pass")
+    raw_n = q("select (select count(*) from raw.pos_standard) + (select count(*) from raw.pos_alberta) + (select count(*) from raw.order_webhooks)")[0][0]
+    lines_n = q("select count(*) from marts.fct_order_lines")[0][0]
+    built = datetime.now(timezone.utc).strftime("%b %-d, %H:%M UTC")
 
-    rows = "".join(f"<tr><td>{html.escape(s)}</td><td class=n>${r:,.2f}</td><td class=n>{o:,}</td><td class=n>${a:,.2f}</td><td class=n>{c * 100:.1f}%</td></tr>" for s, r, o, a, c in stores)
-    cards = "".join(f'<div class="card"><p class="lab">{k}</p><p class="big">{v}</p><p class="{ "up" if d >= 0 else "down" }">{"▲" if d >= 0 else "▼"} {abs(d):.1f}{" pts" if k == "Online share" else "%"} vs prior 30 days</p></div>' for k, v, d in kpis)
-    dry, wet = weather[0], weather[1]
+    rows = "".join(f'''<tr data-store="{s}"><td class="rank">{i + 1}</td><td class="st">{html.escape(n)}</td>
+<td class="n big">{c:,}</td><td class="n">${aov:.2f}</td><td class="n">${rev:,.2f}</td>
+<td class="n {"up" if c >= wk else "down"}">{"+" if c >= wk else "−"}{abs((c - wk) / wk * 100):.0f}%</td></tr>''' for i, (s, n, c, aov, rev, wk, _o, _cd) in enumerate(board))
+
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Copper Kettle daily KPIs (sample pipeline)</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<title>Copper Kettle, yesterday's board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{{--bg:#15171B;--s:#1E2126;--s2:#262A30;--line:#2E3238;--ink:#F3EFE7;--mut:#A7A39B;--acc:#F2994A;--ok:#7FD1A0;--bad:#F08A8A}}
-*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif}}
-main{{max-width:1120px;margin:0 auto;padding:40px 24px 64px}}h1,h2{{font-family:"Bricolage Grotesque",Georgia,serif;letter-spacing:-.02em;margin:0}}
-h1{{font-size:clamp(34px,5vw,52px);line-height:1.02}}h2{{font-size:22px;margin:40px 0 14px}}
-.top{{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-end}}.tag{{font:600 11px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:#F2C14A;background:rgba(242,193,74,.13);padding:5px 9px;border-radius:10px}}
-.sub{{color:var(--mut);margin:8px 0 0}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:28px}}
-.card{{background:var(--s);border:1px solid var(--line);border-radius:10px;padding:16px 18px}}.lab{{margin:0;font:500 11.5px "JetBrains Mono",monospace;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}}
-.big{{margin:6px 0 2px;font:600 28px "JetBrains Mono",monospace;font-variant-numeric:tabular-nums}}.up{{margin:0;color:var(--ok);font-size:13px}}.down{{margin:0;color:var(--bad);font-size:13px}}
-.chart{{background:var(--s);border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}}svg{{width:100%;min-width:640px;height:auto}}.r{{fill:none;stroke:var(--acc);stroke-width:2.2}}.t{{fill:#3A3E45}}.g{{stroke:var(--line)}}.ax{{fill:var(--mut);font:11px "JetBrains Mono",monospace}}
-.legend{{display:flex;gap:18px;color:var(--mut);font-size:13px;margin:0 0 8px}}.legend i{{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}}
-table{{width:100%;border-collapse:collapse;background:var(--s);border:1px solid var(--line);border-radius:10px;overflow:hidden}}th{{text-align:left;font:600 11px "JetBrains Mono",monospace;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);background:var(--s2);padding:10px 14px}}
-td{{padding:11px 14px;border-top:1px solid var(--line)}}.n{{text-align:right;font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums}}th.n{{text-align:right}}
-.two{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}}.pill{{display:inline-block;font:600 12px "JetBrains Mono",monospace;padding:3px 8px;border-radius:8px;background:rgba(127,209,160,.12);color:var(--ok)}}
-a{{color:var(--acc)}}footer{{margin-top:40px;color:var(--mut);font-size:13px}}
+:root{{--bg:#F1E9DC;--s:#FBF7F0;--ink:#22201C;--mut:#6D665B;--line:#DDD2C0;--copper:{COPPER}}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Work Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}}
+main{{max-width:1080px;margin:0 auto;padding:36px 24px 56px}}
+.brand{{font:800 22px "Big Shoulders Display",sans-serif;letter-spacing:.01em}}
+.date{{color:var(--mut);margin:2px 0 0}}
+h1{{font:800 clamp(40px,6.4vw,72px)/1.0 "Big Shoulders Display",sans-serif;margin:26px 0 30px;max-width:900px;letter-spacing:.005em}}
+.board{{background:var(--ink);color:#F4EEE4;border-radius:6px;padding:10px 26px 14px}}
+.board table{{width:100%;border-collapse:collapse}}
+.board th{{text-align:left;font-weight:500;color:#B8AE9E;font-size:14px;padding:14px 10px 10px;border-bottom:1px solid #4A443B}}
+.board td{{padding:16px 10px;border-bottom:1px dashed #4A443B;font-size:18px}}
+.board tr:last-child td{{border-bottom:0}}
+.board tbody tr{{transition:background .15s ease-out;cursor:default}}
+.board tbody tr:hover,.board tbody tr.on{{background:#2E2B26}}
+.board tr.on .st,.board tbody tr:hover .st{{color:#E7A47F}}
+.rank{{width:44px;color:#8F8678;font:800 26px "Big Shoulders Display",sans-serif}}
+.st{{font:800 30px "Big Shoulders Display",sans-serif;letter-spacing:.01em;transition:color .15s ease-out}}
+.n{{text-align:right;white-space:nowrap}}.big{{font:800 34px "Big Shoulders Display",sans-serif}}
+th.n{{text-align:right}}.up{{color:#9CC59A}}.down{{color:#E7A47F}}
+h2{{font:800 30px "Big Shoulders Display",sans-serif;margin:44px 0 6px}}
+.sub{{color:var(--mut);margin:0 0 14px}}
+.chart{{background:var(--s);border:1px solid var(--line);border-radius:6px;padding:16px 16px 8px;overflow-x:auto}}
+svg{{width:100%;min-width:640px;height:auto;display:block}}.g{{stroke:var(--line)}}.ax{{fill:var(--mut);font:12px "Work Sans",sans-serif}}
+.ln{{fill:none;stroke:var(--c);stroke-width:2;transition:stroke .15s ease-out,stroke-width .15s ease-out}}.ln.on{{stroke:var(--copper);stroke-width:3}}
+.notes{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:16px}}
+.note{{background:var(--s);border:1px solid var(--line);border-radius:6px;padding:16px 18px}}
+.note b{{display:block;font-size:17px;font-weight:600}}.note span{{color:var(--mut)}}
+.health{{margin-top:44px;border-top:1px solid var(--line);padding-top:18px;color:var(--mut);display:flex;flex-wrap:wrap;gap:8px 28px}}
+.health b{{color:var(--ink);font-weight:600}}
+a{{color:var(--ink)}}footer{{margin-top:18px;color:var(--mut);font-size:14px}}
+@media (max-width:640px){{.board{{padding:6px 12px}}.board th:nth-child(5),.board td:nth-child(5){{display:none}}.st{{font-size:24px}}.big{{font-size:28px}}}}
+@media (prefers-reduced-motion:reduce){{*{{transition:none!important}}}}
 </style></head><body><main>
-<div class="top"><div><h1>Copper Kettle, daily KPIs</h1><p class="sub">Three coffee shops in Portland. Data through {last_day:%b %-d, %Y}. Rebuilt {generated}.</p></div><span class="tag">Sample pipeline, fictional business</span></div>
-<div class="grid">{cards}</div>
-<h2>Daily revenue and the weather</h2>
-<div class="chart"><p class="legend"><span><i style="background:#F2994A"></i>Daily revenue, all shops</span><span><i style="background:#3A3E45"></i>Max temperature</span></p>{svg_chart(daily)}</div>
-<div class="two" style="margin-top:12px">
-<div class="card"><p class="lab">Rainy days push orders online</p><p class="big">{wet[1] * 100:.1f}% <span style="font-size:15px;color:var(--mut)">vs {dry[1] * 100:.1f}% on dry days</span></p><p class="up" style="color:var(--mut)">{wet[3]} rainy and {dry[3]} dry shop days</p></div>
-<div class="card"><p class="lab">Cold drinks track the temperature</p><p class="big">r = {corr:.2f}</p><p class="up" style="color:var(--mut)">daily cold drink share against max °C</p></div>
+<p class="brand">Copper Kettle</p><p class="date">Three coffee shops in Portland. Board for {last:%A, %B %-d}. Rebuilt {built}.</p>
+<h1>{html.escape(headline)}</h1>
+<div class="board"><table><thead><tr><th></th><th>Shop</th><th class="n">Cups</th><th class="n">Ticket</th><th class="n">Takings</th><th class="n">vs week</th></tr></thead><tbody>{rows}</tbody></table></div>
+<h2>Cups a day, last 90 days</h2>
+<p class="sub">Point at a shop on the board to light its line.</p>
+<div class="chart">{chart(series, days)}</div>
+<div class="notes">
+<div class="note"><b>Rain pushes orders online</b><span>{wet * 100:.1f}% of orders came in online on rainy days, against {dry * 100:.1f}% on dry ones.</span></div>
+<div class="note"><b>Heat sells cold drinks</b><span>The share of iced drinks tracks the day's high closely, a correlation of {corr:.2f}.</span></div>
 </div>
-<h2>Shops, last 30 days</h2>
-<table><thead><tr><th>Shop</th><th class=n>Revenue</th><th class=n>Orders</th><th class=n>Avg order</th><th class=n>Cold drinks</th></tr></thead><tbody>{rows}</tbody></table>
-<h2>Pipeline health</h2>
-<div class="two">
-<div class="card"><p class="lab">Last dbt build</p><p class="big">{statuses.count("pass") + statuses.count("success")}/{len(statuses)} <span class="pill">passed</span></p><p class="up" style="color:var(--mut)">{len(tests)} data tests, {len(statuses) - len(tests)} models and seeds</p></div>
-<div class="card"><p class="lab">Source freshness</p><p class="big">{sum(1 for r in fresh['results'] if r.get('status') == 'pass')}/{len(fresh['results'])} <span class="pill">fresh</span></p><p class="up" style="color:var(--mut)">{layers[0][1]:,} raw records in, {layers[2][1]:,} clean order lines out</p></div>
-</div>
-<footer>Built by a scheduled GitHub Actions run: extract from Open-Meteo, load into DuckDB, transform and test with dbt. <a href="lineage.html">Lineage</a> and <a href="docs/">model docs</a>. All shop data is synthetic.</footer>
-</main></body></html>"""
+<p class="health"><span><b>{passed} of {len(run["results"])}</b> dbt checks passed, including {len(tests)} data tests</span><span><b>{fresh_ok} of {len(fresh["results"])}</b> sources fresh</span><span><b>{raw_n:,}</b> raw records in, <b>{lines_n:,}</b> clean order lines out</span></p>
+<footer><a href="lineage.html">How the data flows</a> and <a href="docs/">model docs</a>. Fictional business, invented data. Weather from the public Open-Meteo API.</footer>
+</main>
+<script>
+const set = (s) => {{ document.querySelectorAll(".ln").forEach((l) => l.classList.toggle("on", l.dataset.store === s)); document.querySelectorAll("tbody tr").forEach((r) => r.classList.toggle("on", r.dataset.store === s)); }};
+document.querySelectorAll("tbody tr").forEach((r) => {{ r.addEventListener("mouseenter", () => set(r.dataset.store)); r.addEventListener("focus", () => set(r.dataset.store)); r.tabIndex = 0; }});
+document.querySelector("tbody").addEventListener("mouseleave", () => set("{top[0]}"));
+set("{top[0]}");
+</script></body></html>"""
     SITE.mkdir(exist_ok=True)
     (SITE / "index.html").write_text(page)
-    print(f"report written, data through {last_day}")
+    print(f"report written, data through {last}")
 
 
 if __name__ == "__main__":

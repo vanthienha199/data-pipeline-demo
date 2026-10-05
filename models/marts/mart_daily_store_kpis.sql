@@ -33,6 +33,7 @@ select
     round(o.revenue, 2) as revenue,
     round(o.revenue / o.orders, 2) as avg_order_value,
     round(o.online_orders / o.orders, 4) as online_share,
+    coalesce(d.drinks, 0) as cups,
     round(d.cold_drinks / nullif(d.drinks, 0), 4) as cold_drink_share,
     o.refunds,
     w.temp_max_c,

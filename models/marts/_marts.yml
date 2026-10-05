@@ -41,6 +41,9 @@ models:
     columns:
       - name: orders
         data_tests: [not_null]
+      - name: cups
+        description: Drinks sold that day, hot and cold, excluding refunds.
+        data_tests: [not_null]
       - name: temp_max_c
         description: Null would mean the weather pull missed a day.
         data_tests: [not_null]

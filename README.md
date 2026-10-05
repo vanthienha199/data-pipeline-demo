@@ -28,7 +28,7 @@ Lineage: four raw sources and two seeds feed five staging models, two dimensions
 
 ## Tests
 
-The last build ran 52 nodes: 40 data tests plus the models and seeds, all passing. There are 4 source freshness checks.
+The last build ran 53 nodes: 41 data tests plus the models and seeds, all passing. There are 4 source freshness checks.
 
 - Generic tests: `unique`, `not_null`, `accepted_values`, `relationships`, plus a custom `unique_combination` for the store by day grain.
 - Singular tests:

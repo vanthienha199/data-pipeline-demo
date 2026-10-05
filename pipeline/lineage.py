@@ -44,13 +44,13 @@ for u, (x, y) in pos.items():
     t = tests_on.get(u, 0)
     sub = f"{t} test{'s' if t != 1 else ''}" if t else ("seed" if n["kind"] == "seed" else "source")
     boxes.append(f'<rect x="{x}" y="{y}" width="{boxw}" height="{boxh}" rx="10" class="b {cls}"/><text x="{x + 12}" y="{y + 24}" class="bt">{n["name"]}</text><text x="{x + 12}" y="{y + 44}" class="{"tb" if t else "tm"}">{sub}</text>')
-labels = {0: "RAW SOURCES", 1: "STAGING", 2: "SEEDS AND DIMENSIONS", 4: "FACTS", 6: "KPI VIEW"}
+labels = {0: "Raw sources", 1: "Staging", 2: "Seeds and dimensions", 4: "Facts", 6: "Daily board"}
 heads = "".join(f'<text x="{40 + k * colw}" y="46" class="h">{v}</text>' for k, v in labels.items())
 svg = f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">{heads}{"".join(edges)}{"".join(boxes)}</svg>'
-css = """body{margin:0;background:#15171B;font-family:"JetBrains Mono",ui-monospace,monospace}svg{display:block;width:100%;height:auto}
-.h{fill:#A7A39B;font:600 13px "JetBrains Mono",monospace;letter-spacing:.08em}.e{fill:none;stroke:#3A3E45;stroke-width:1.6}.e.hot{stroke:#F2994A;stroke-width:2}
-.b{fill:#1E2126;stroke:#2E3238}.b.source{fill:#1A1C20;stroke-dasharray:4 3}.b.seed{fill:#1A1C20}.b.kpi{fill:#2A2118;stroke:#F2994A}
-.bt{fill:#F3EFE7;font:500 13px "JetBrains Mono",monospace}.tm{fill:#6F6B64;font:500 11.5px "JetBrains Mono",monospace}.tb{fill:#7FD1A0;font:500 11.5px "JetBrains Mono",monospace}"""
+css = """body{margin:0;background:#F1E9DC;font-family:"Work Sans",system-ui,sans-serif}svg{display:block;width:100%;height:auto}
+.h{fill:#6D665B;font:600 14px "Work Sans",sans-serif}.e{fill:none;stroke:#C9BCA6;stroke-width:1.6}.e.hot{stroke:#B0603A;stroke-width:2}
+.b{fill:#FBF7F0;stroke:#DDD2C0}.b.source{fill:#F6EFE3;stroke-dasharray:4 3}.b.seed{fill:#F6EFE3}.b.kpi{fill:#F7E6DB;stroke:#B0603A}
+.bt{fill:#22201C;font:600 13.5px "Work Sans",sans-serif}.tm{fill:#8C8476;font:400 12px "Work Sans",sans-serif}.tb{fill:#5E7A4A;font:500 12px "Work Sans",sans-serif}"""
 Path("site").mkdir(exist_ok=True)
-Path("site/lineage.html").write_text(f'<!doctype html><html><head><meta charset="utf-8"><title>Lineage</title><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"><style>{css}</style></head><body>{svg}</body></html>')
+Path("site/lineage.html").write_text(f'<!doctype html><html><head><meta charset="utf-8"><title>Lineage</title><link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet"><style>{css}</style></head><body>{svg}</body></html>')
 print(f"lineage: {len(nodes)} nodes, {len(edges)} edges")
