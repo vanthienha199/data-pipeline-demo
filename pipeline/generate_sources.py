@@ -116,6 +116,12 @@ def write_webhooks(day, w, rng):
 def main():
     w = weather()
     days = sorted({d for (_, d) in w})
+    keep = {d.replace("-", "") for d in days}
+    stale = [f for f in list((RAW / "pos").glob("*.csv")) + list((RAW / "webhooks").glob("*.jsonl")) if f.stem.rsplit("_", 1)[-1] not in keep]
+    for f in stale:
+        f.unlink()
+    if stale:
+        print(f"removed {len(stale)} export files older than the 90 day window")
     today = date.today()
     for d in days:
         day = date.fromisoformat(d)
